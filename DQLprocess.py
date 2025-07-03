@@ -6,6 +6,7 @@ import math
 import random
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 from collections import namedtuple, deque
 from itertools import count
 
@@ -21,7 +22,7 @@ if __name__ == "__main__":
     ale = ALEInterface()
     gym.register_envs(ale_py)
 
-    env = gym.make('ALE/Breakout-v5')
+    env = gym.make('ALE/Breakout-v5', obs_type="rgb")
     
 
     # set up matplotlib
@@ -136,23 +137,25 @@ if __name__ == "__main__":
             return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
 
-    episode_durations = []
+    # episode_durations = []
+    eps_total_reward_list = []
 
 
-    def plot_durations(show_result=False):
+    def plot_durations(eps_reward, show_result=False):
         plt.figure(1)
-        durations_t = torch.tensor(episode_durations, dtype=torch.float)
+        # durations_t = torch.tensor(episode_durations, dtype=torch.float)
+        rewards_t = torch.tensor(eps_reward, dtype=torch.float)
         if show_result:
             plt.title('Result')
         else:
             plt.clf()
             plt.title('Training...')
         plt.xlabel('Episode')
-        plt.ylabel('Duration')
-        plt.plot(durations_t.numpy())
+        plt.ylabel('Reward')
+        plt.plot(rewards_t.numpy())
         # Take 100 episode averages and plot them too
-        if len(durations_t) >= 100:
-            means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+        if len(rewards_t) >= 100:
+            means = rewards_t.unfold(0, 100, 1).mean(1).view(-1)
             means = torch.cat((torch.zeros(99), means))
             plt.plot(means.numpy())
 
@@ -163,6 +166,7 @@ if __name__ == "__main__":
                 display.clear_output(wait=True)
             else:
                 display.display(plt.gcf())
+        plt.savefig('reward_plot.png')
     # then put the results through relu
     # then through last layer (multiply matrix such that the output is batch size x actionSpace)
 
@@ -180,8 +184,8 @@ if __name__ == "__main__":
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                             batch.next_state)), device=device, dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state
-                                                    if s is not None])
-        state_batch = torch.cat(batch.state)
+                                                    if s is not None], dim=0)
+        state_batch = torch.cat(batch.state, dim=0)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
 
@@ -217,7 +221,9 @@ if __name__ == "__main__":
     else:
         num_episodes = 50
 
+    
     for i_episode in range(num_episodes):
+        eps_total_reward = 0
         # Initialize the environment and get its state
         state, info = env.reset()
         state = getPreprocessLong1D(state, device)
@@ -225,20 +231,20 @@ if __name__ == "__main__":
         for t in count():
             action = select_action(state)
             observation, reward, terminated, truncated, info = env.step(env.action_space.sample())
+            eps_total_reward += reward
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
             if terminated:
                 next_state = None
             else:
-                next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+                next_state = getPreprocessLong1D(observation, device)
 
             # Store the transition in memory
             memory.push(state, action, next_state, reward)
 
             # Move to the next state
             state = next_state
-            state = getPreprocessLong1D(state, device)
 
             # Perform one step of the optimization (on the policy network)
             optimize_model()
@@ -252,12 +258,13 @@ if __name__ == "__main__":
             target_net.load_state_dict(target_net_state_dict)
 
             if done:
-                episode_durations.append(t + 1)
-                plot_durations()
+                # episode_durations.append(t + 1)
+                eps_total_reward_list.append(eps_total_reward)
+                plot_durations(eps_total_reward_list)
                 break
 
     print('Complete')
-    plot_durations(show_result=True)
+    plot_durations(eps_total_reward_list, show_result=True)
     plt.ioff()
     plt.show()
     env.close()

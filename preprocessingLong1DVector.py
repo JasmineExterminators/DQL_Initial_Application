@@ -19,7 +19,6 @@ def getPreprocessLong1D(state, device):
     flat_state = state.flatten()
     flat_state_tensor = torch.tensor(flat_state, dtype=torch.float32, device=device).unsqueeze(0)
 
-    print(flat_state_tensor)
     return flat_state_tensor
     # make it into one long matrix
 
