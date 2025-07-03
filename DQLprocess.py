@@ -23,12 +23,6 @@ if __name__ == "__main__":
     gym.register_envs(ale_py)
 
     env = gym.make('ALE/Breakout-v5', obs_type="rgb")
-    
-
-    # set up matplotlib
-    is_ipython = 'inline' in matplotlib.get_backend()
-    if is_ipython:
-        from IPython import display
 
     plt.ion()
 
@@ -141,7 +135,7 @@ if __name__ == "__main__":
     eps_total_reward_list = []
 
 
-    def plot_durations(eps_reward, show_result=False):
+    def plot_rewards(eps_reward, show_result=False):
         plt.figure(1)
         # durations_t = torch.tensor(episode_durations, dtype=torch.float)
         rewards_t = torch.tensor(eps_reward, dtype=torch.float)
@@ -160,12 +154,6 @@ if __name__ == "__main__":
             plt.plot(means.numpy())
 
         plt.pause(0.001)  # pause a bit so that plots are updated
-        if is_ipython:
-            if not show_result:
-                display.display(plt.gcf())
-                display.clear_output(wait=True)
-            else:
-                display.display(plt.gcf())
         plt.savefig('reward_plot.png')
     # then put the results through relu
     # then through last layer (multiply matrix such that the output is batch size x actionSpace)
@@ -260,11 +248,11 @@ if __name__ == "__main__":
             if done:
                 # episode_durations.append(t + 1)
                 eps_total_reward_list.append(eps_total_reward)
-                plot_durations(eps_total_reward_list)
+                plot_rewards(eps_total_reward_list)
                 break
 
     print('Complete')
-    plot_durations(eps_total_reward_list, show_result=True)
+    plot_rewards(eps_total_reward_list, show_result=True)
     plt.ioff()
     plt.show()
     env.close()
