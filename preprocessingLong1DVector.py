@@ -13,15 +13,18 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-def getPreprocessLong1D(state, device):
+def getPreprocessNormalizedLong1D(state, device):
     # look at the format of the matrix atm
     # the format is currently a 210 x 160 np array with rgb each an unsigned 8 bit int from 0-255
-    flat_state = state.flatten()
-    flat_state_tensor = torch.tensor(flat_state, dtype=torch.float32, device=device).unsqueeze(0)
+
+    #normalizing 0-255 into -1 to 1
+    normalized_state = (state.astype(np.float32) / 127.5) - 1
+    import ipdb; ipdb.set_trace()
+    flat_state = normalized_state.flatten()
+    flat_state_tensor = torch.tensor(flat_state, dtype=torch.float32, device=device).unsqueeze(0) #notice we need format float32 cuz we gonna do matrix multiplication and all the weights and stuff are floats
 
     return flat_state_tensor
     # make it into one long matrix
-
     
 
 
