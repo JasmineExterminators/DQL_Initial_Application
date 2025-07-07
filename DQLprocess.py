@@ -15,7 +15,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from preprocessingLong1DVector import getPreprocessLong1D
+from preprocessingLong1DVector import getPreprocessNormalizedLong1D
 
 
 if __name__ == "__main__":
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     n_actions = env.action_space.n
     # Get the number of state observations
     state, info = env.reset()
-    state = getPreprocessLong1D(state, device)
+    state = getPreprocessNormalizedLong1D(state, device)
     n_observations = state.shape[1]
 
     policy_net = DQN(n_observations, n_actions).to(device)
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         eps_total_reward = 0
         # Initialize the environment and get its state
         state, info = env.reset()
-        state = getPreprocessLong1D(state, device)
+        state = getPreprocessNormalizedLong1D(state, device)
         # state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         for t in count():
             action = select_action(state)
@@ -226,7 +226,7 @@ if __name__ == "__main__":
             if terminated:
                 next_state = None
             else:
-                next_state = getPreprocessLong1D(observation, device)
+                next_state = getPreprocessNormalizedLong1D(observation, device)
 
             # Store the transition in memory
             memory.push(state, action, next_state, reward)
