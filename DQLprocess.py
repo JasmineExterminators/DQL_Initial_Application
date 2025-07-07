@@ -9,13 +9,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from collections import namedtuple, deque
 from itertools import count
+from tqdm import tqdm
+from einops import rearrange
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from preprocessingLong1DVector import getPreprocessNormalizedLong1D
+from preprocessingLong1DVector import getPreprocessNormalizedLong1D, DQNEncoder, normalize_rgb
 
 
 if __name__ == "__main__":
@@ -68,16 +70,18 @@ if __name__ == "__main__":
 
         def __init__(self, n_observations, n_actions):
             super(DQN, self).__init__()
-            self.layer1 = nn.Linear(n_observations, 128)
-            self.layer2 = nn.Linear(128, 128)
-            self.layer3 = nn.Linear(128, n_actions)
+            self.layer1 = nn.Linear(n_observations, 512)
+            self.layer2 = nn.Linear(512, 512)
+            self.layer3 = nn.Linear(512, 512)
+            self.layer4 = nn.Linear(512, n_actions)
 
         # Called with either one element to determine next action, or a batch
         # during optimization. Returns tensor([[left0exp,right0exp]...]).
         def forward(self, x):
             x = F.relu(self.layer1(x))
             x = F.relu(self.layer2(x))
-            return self.layer3(x)
+            x = F.relu(self.layer3(x))
+            return self.layer4(x)
     
     # then give a batch from the buffer to the first layer of the cnn
     # BATCH_SIZE is the number of transitions sampled from the replay buffer
@@ -88,28 +92,37 @@ if __name__ == "__main__":
     # TAU is the update rate of the target network
     # LR is the learning rate of the ``AdamW`` optimizer
 
-    BATCH_SIZE = 128
+    BATCH_SIZE = 256
     GAMMA = 0.99
     EPS_START = 0.9
     EPS_END = 0.01
-    EPS_DECAY = 2500
-    TAU = 0.005
+    EPS_DECAY = 25000
+    TAU = 0.0005
     LR = 3e-4
 
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
     # Get the number of state observations
-    state, info = env.reset()
-    state = getPreprocessNormalizedLong1D(state, device)
-    n_observations = state.shape[1]
+    observation, info = env.reset()
+
+    encoder = DQNEncoder()
+    encoded_obs = encoder(torch.randn(1,3,210,160))  # Output shape: [32, output_dim]
+    encoder = encoder.to(device)
+    n_observations = encoded_obs.shape[-1]
+
+    # state = getPreprocessNormalizedLong1D(state, device)
+    # n_observations = state.shape[1]
 
     policy_net = DQN(n_observations, n_actions).to(device)
     target_net = DQN(n_observations, n_actions).to(device)
     target_net.load_state_dict(policy_net.state_dict())
 
-    optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-    memory = ReplayMemory(10000)
+    optimizer = optim.AdamW([
+        {'params': encoder.parameters()},
+        {'params': policy_net.parameters()},
+    ], lr=LR)
+    memory = ReplayMemory(100000)
 
 
     steps_done = 0
@@ -173,13 +186,15 @@ if __name__ == "__main__":
                                             batch.next_state)), device=device, dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state
                                                     if s is not None], dim=0)
-        state_batch = torch.cat(batch.state, dim=0)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+        non_final_next_states = non_final_next_states.to(device)
+        state_batch = torch.cat(batch.state, dim=0).to(device)
+        action_batch = torch.cat(batch.action).to(device)
+        reward_batch = torch.cat(batch.reward).to(device)
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
+        state_batch = encoder(normalize_rgb(state_batch))
         state_action_values = policy_net(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states.
@@ -189,7 +204,10 @@ if __name__ == "__main__":
         # state value or 0 in case the state was final.
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
         with torch.no_grad():
-            next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+            non_final_next_states = encoder(normalize_rgb(non_final_next_states))
+            next_state_values[non_final_mask] = target_net(
+                non_final_next_states
+            ).max(1).values
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
@@ -209,30 +227,34 @@ if __name__ == "__main__":
     else:
         num_episodes = 50
 
-    
+    bar = tqdm(range(1000000))
     for i_episode in range(num_episodes):
         eps_total_reward = 0
         # Initialize the environment and get its state
-        state, info = env.reset()
-        state = getPreprocessNormalizedLong1D(state, device)
+        observation, info = env.reset()
+        observation = torch.tensor(observation)
+        observation = rearrange(observation, "h w c -> c h w").unsqueeze(0)
+        # state = getPreprocessNormalizedLong1D(state, device)
         # state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
-        for t in count():
-            action = select_action(state)
-            observation, reward, terminated, truncated, info = env.step(env.action_space.sample())
+        while True:
+            encoded_obs = encoder(normalize_rgb(observation).to(device))
+            action = select_action(encoded_obs)
+            # action = select_action(state)
+            next_observation, reward, terminated, truncated, info = env.step(env.action_space.sample())
+            next_observation = torch.tensor(next_observation)
+            next_observation = rearrange(next_observation, "h w c -> c h w").unsqueeze(0)
+
             eps_total_reward += reward
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
-            if terminated:
-                next_state = None
-            else:
-                next_state = getPreprocessNormalizedLong1D(observation, device)
+            bar.update(1)
 
             # Store the transition in memory
-            memory.push(state, action, next_state, reward)
+            memory.push(observation, action, next_observation, reward)
 
             # Move to the next state
-            state = next_state
+            observation = next_observation
 
             # Perform one step of the optimization (on the policy network)
             optimize_model()
