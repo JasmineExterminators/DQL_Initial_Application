@@ -13,24 +13,25 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-def getPreprocessNormalizedLong1D(state, device):
-    # look at the format of the matrix atm
-    # the format is currently a 210 x 160 np array with rgb each an unsigned 8 bit int from 0-255
-    # convert to grayscale 
-    gray_state = np.dot(state[...,:3], [0.2989, 0.5870, 0.1140])
 
-    #normalizing 0-255 into -1 to 1
-    normalized_state = (gray_state.astype(np.float32) / 127.5) - 1
-    # import ipdb; ipdb.set_trace()
-    flat_state = normalized_state.flatten()
-    flat_state_tensor = torch.tensor(flat_state, dtype=torch.float32, device=device).unsqueeze(0) #notice we need format float32 cuz we gonna do matrix multiplication and all the weights and stuff are floats
+class DQN(nn.Module):
 
-    return flat_state_tensor
-    # make it into one long matrix
+    def __init__(self, n_observations, n_actions):
+        super(DQN, self).__init__()
+        self.layer1 = nn.Linear(n_observations, 512)
+        self.layer2 = nn.Linear(512, 512)
+        self.layer3 = nn.Linear(512, 512)
+        self.layer4 = nn.Linear(512, n_actions)
 
-def normalize_rgb(image):
-    return image.float() / 127.5 - 1
-
+    # Called with either one element to determine next action, or a batch
+    # during optimization. Returns tensor([[left0exp,right0exp]...]).
+    def forward(self, x):
+        x = F.relu(self.layer1(x))
+        x = F.relu(self.layer2(x))
+        x = F.relu(self.layer3(x))
+        return self.layer4(x)
+    
+    
 
 class DQNEncoder(nn.Module):
     def __init__(self):

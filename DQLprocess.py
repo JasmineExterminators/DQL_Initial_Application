@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from preprocessingLong1DVector import getPreprocessNormalizedLong1D, DQNEncoder, normalize_rgb
+from preprocessingLong1DVector import DQNEncoder, DQN
 
 
 
@@ -39,7 +39,8 @@ EPS_END = 0.01
 EPS_DECAY = 25000
 TAU = 0.0005
 LR = 3e-4
-BUFFER_SIZE = 100000
+BUFFER_SIZE = 1000000
+FRAME_GAP = 5
 
 # transition
 Transition = namedtuple('Transition',
@@ -61,26 +62,10 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
         
-# network
-class DQN(nn.Module):
-
-    def __init__(self, n_observations, n_actions):
-        super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 512)
-        self.layer2 = nn.Linear(512, 512)
-        self.layer3 = nn.Linear(512, 512)
-        self.layer4 = nn.Linear(512, n_actions)
-
-    # Called with either one element to determine next action, or a batch
-    # during optimization. Returns tensor([[left0exp,right0exp]...]).
-    def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        x = F.relu(self.layer3(x))
-        return self.layer4(x)
-    
-    
 # FUNCTIONS
+
+def normalize_rgb(image):
+    return image.float() / 127.5 - 1
 
 def select_action(state):
     global steps_done
@@ -176,7 +161,7 @@ if __name__ == "__main__":
     # initialize everything
     ale = ALEInterface()
     gym.register_envs(ale_py)
-    env = gym.make('ALE/Breakout-v5', obs_type="rgb", render_mode="human")
+    env = gym.make('ALE/Tetris', obs_type="rgb")
     plt.ion()
     n_actions = env.action_space.n
     observation, info = env.reset()
@@ -206,7 +191,6 @@ if __name__ == "__main__":
     encoder = encoder.to(device)
     n_observations = encoded_obs.shape[-1]
 
-    # state = getPreprocessNormalizedLong1D(state, device)
     # n_observations = state.shape[1]
 
     policy_net = DQN(n_observations, n_actions).to(device)
@@ -236,7 +220,6 @@ if __name__ == "__main__":
         observation, info = env.reset()
         observation = torch.tensor(observation)
         observation = rearrange(observation, "h w c -> c h w").unsqueeze(0)
-        # state = getPreprocessNormalizedLong1D(state, device)
         # state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         while True:
             encoded_obs = encoder(normalize_rgb(observation).to(device))
@@ -259,7 +242,8 @@ if __name__ == "__main__":
             observation = next_observation
 
             # Perform one step of the optimization (on the policy network)
-            optimize_model()
+            if steps_done % FRAME_GAP == 0:
+                optimize_model()
 
             # Soft update of the target network's weights
             # θ′ ← τ θ + (1 −τ )θ′
